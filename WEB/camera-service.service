@@ -1,0 +1,31 @@
+[Unit]
+Description=树莓派摄像头流服务
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=Goodman
+WorkingDirectory=/home/Goodman
+ExecStart=/usr/bin/python3 /home/Goodman/camera_server.py
+Restart=always
+RestartSec=5
+# 增加终止超时，确保程序有足够时间清理资源
+TimeoutStopSec=30
+# 系统日志改为直接写入文件
+StandardOutput=append:/home/Goodman/camera_service.log
+StandardError=append:/home/Goodman/camera_service.log
+# 设置环境变量
+Environment=PYTHONUNBUFFERED=1
+# 确保不使用Python缓冲区并能访问硬件
+Environment=LIBCAMERA_LOG_LEVELS=3
+Environment=LD_LIBRARY_PATH=/usr/local/lib
+# 增加优先级
+Nice=-10
+
+# 移除CPU和内存限制，这可能导致视频流卡死
+# CPUQuota=80%
+# MemoryLimit=300M
+
+[Install]
+WantedBy=multi-user.target 
