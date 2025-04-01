@@ -194,6 +194,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         background: rgba(80, 80, 80, 0.8);
     }
     
+    /* 全屏模式 - 显示完整视频(可能有黑边) */
     .fullscreen-mode {
         position: fixed;
         top: 0;
@@ -216,10 +217,15 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         width: auto;
         height: auto;
         border-radius: 0;
-        object-fit: contain;
+        object-fit: contain; /* 确保显示完整视频 */
+        margin: 0 auto; /* 水平居中 */
+        display: block; /* 块级显示以支持margin:auto居中 */
+        position: relative; /* 确保定位控制 */
+        left: 0; /* 重置任何可能的左边距偏移 */
+        right: 0; /* 结合left:0确保水平居中 */
     }
 
-    /* 新增：横屏全屏填充模式 */
+    /* 全屏填充模式 - 填满整个屏幕(可能裁剪部分画面) */
     .fullscreen-fill-mode {
         position: fixed;
         top: 0;
@@ -237,10 +243,35 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     }
     
     .fullscreen-fill-mode img {
-        width: 100vw !important;
-        height: 100vh !important;
+        width: 100% !important;
+        height: 100% !important;
         border-radius: 0;
-        object-fit: cover;
+        object-fit: cover; /* 填满整个屏幕 */
+    }
+    
+    /* 全屏模式切换按钮 */
+    .fullscreen-toggle-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.6);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 10000;
+        transition: background 0.3s;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    }
+    
+    .fullscreen-toggle-btn:hover {
+        background: rgba(50, 50, 50, 0.8);
     }
     
     /* 横屏提示覆盖层 */
@@ -332,8 +363,8 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     /* 适应横屏的媒体查询 */
     @media (orientation: landscape) {
         .fullscreen-fill-mode img {
-            width: 100vw !important;
-            height: 100vh !important;
+            width: 100% !important;
+            height: 100% !important;
         }
     }
 
@@ -467,7 +498,8 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         <button class="fullscreen-control-btn" id="dismiss-landscape-prompt">继续浏览</button>
     </div>
     
-    <!-- 移除全屏控制按钮，因为阻挡视觉体验 -->
+    <!-- 全屏模式切换按钮 -->
+    <div class="fullscreen-toggle-btn" id="fullscreen-toggle" style="display: none;">🔍</div>
 
     <script>
     document.addEventListener('DOMContentLoaded', function (event) {
@@ -505,6 +537,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         var piStreamContainer = document.getElementById('pi-stream-container');
         var piStreamImg = document.getElementById('pi-stream');
         var fullscreenBtn = document.getElementById('fullscreen-pi-stream');
+        var fullscreenToggleBtn = document.getElementById('fullscreen-toggle');
         var exitFullscreenOverlay = document.getElementById('exit-fullscreen-overlay');
         var exitFullscreenBtn = document.getElementById('exit-fullscreen-btn');
         var landscapePrompt = document.getElementById('landscape-prompt');
@@ -525,7 +558,28 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             }
         }
         
-        // 全屏显示函数 - 简化版
+        // 切换全屏显示模式
+        function toggleFullscreenMode() {
+            if (isFullscreen) {
+                // 切换模式
+                isFullscreenFill = !isFullscreenFill;
+                
+                // 移除当前样式
+                piStreamContainer.classList.remove('fullscreen-mode');
+                piStreamContainer.classList.remove('fullscreen-fill-mode');
+                
+                // 应用新样式
+                if (isFullscreenFill) {
+                    piStreamContainer.classList.add('fullscreen-fill-mode');
+                    fullscreenToggleBtn.innerHTML = '🔍'; // 显示放大镜图标表示可以切换到完整显示
+                } else {
+                    piStreamContainer.classList.add('fullscreen-mode');
+                    fullscreenToggleBtn.innerHTML = '⬜'; // 显示填充图标表示可以切换到填充模式
+                }
+            }
+        }
+        
+        // 全屏显示函数
         function enterFullscreen() {
             console.log("进入全屏模式");
             isFullscreen = true;
@@ -551,8 +605,17 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
                 }
             }
             
-            // 始终使用填充模式
-            piStreamContainer.classList.add('fullscreen-fill-mode');
+            // 根据当前模式应用全屏样式
+            if (isFullscreenFill) {
+                piStreamContainer.classList.add('fullscreen-fill-mode');
+                fullscreenToggleBtn.innerHTML = '🔍';
+            } else {
+                piStreamContainer.classList.add('fullscreen-mode');
+                fullscreenToggleBtn.innerHTML = '⬜';
+            }
+            
+            // 显示模式切换按钮
+            fullscreenToggleBtn.style.display = 'flex';
             
             // 隐藏连接状态指示器，避免遮挡视频
             connectionStatus.style.display = 'none';
@@ -564,7 +627,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             window.addEventListener('orientationchange', checkOrientation);
         }
         
-        // 退出全屏函数 - 简化版
+        // 退出全屏函数
         function exitFullscreen() {
             console.log("退出全屏模式");
             isFullscreen = false;
@@ -575,6 +638,9 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             // 移除全屏样式
             piStreamContainer.classList.remove('fullscreen-fill-mode');
             piStreamContainer.classList.remove('fullscreen-mode');
+            
+            // 隐藏模式切换按钮
+            fullscreenToggleBtn.style.display = 'none';
             
             // 隐藏提示
             landscapePrompt.style.display = 'none';
@@ -614,6 +680,11 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
                     enterFullscreen();
                 }
             }
+        });
+        
+        // 全屏模式切换按钮点击事件
+        fullscreenToggleBtn.addEventListener('click', function() {
+            toggleFullscreenMode();
         });
         
         // 忽略横屏提示
@@ -797,8 +868,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             
             // 如果在全屏模式下，先退出全屏
             if (isFullscreen) {
-                // 只恢复全屏按钮的背景色
-                fullscreenBtn.style.background = "rgba(0, 0, 0, 0.5)";
                 exitFullscreen();
             }
             
@@ -825,8 +894,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         document.getElementById('close-pi-stream').onclick = function() {
             // 如果在全屏模式下，先退出全屏
             if (isFullscreen) {
-                // 只恢复全屏按钮的背景色
-                fullscreenBtn.style.background = "rgba(0, 0, 0, 0.5)";
                 exitFullscreen();
             }
             
@@ -838,8 +905,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             if (piStreamImg.src !== '') {
                 // 如果在全屏模式下，先退出全屏
                 if (isFullscreen) {
-                    // 只恢复全屏按钮的背景色
-                    fullscreenBtn.style.background = "rgba(0, 0, 0, 0.5)";
                     exitFullscreen();
                 }
                 
@@ -886,10 +951,16 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         // 监听窗口大小变化，确保在窗口大小调整时仍能维持全屏状态
         window.addEventListener('resize', function() {
             if (isFullscreen) {
-                // 保持填充模式
+                // 移除当前样式
+                piStreamContainer.classList.remove('fullscreen-mode');
                 piStreamContainer.classList.remove('fullscreen-fill-mode');
-                void piStreamContainer.offsetWidth; // 强制重排
-                piStreamContainer.classList.add('fullscreen-fill-mode');
+                
+                // 重新应用当前模式
+                if (isFullscreenFill) {
+                    piStreamContainer.classList.add('fullscreen-fill-mode');
+                } else {
+                    piStreamContainer.classList.add('fullscreen-mode');
+                }
                 
                 // 检查是否需要显示横屏提示
                 if (isMobile) {
@@ -914,6 +985,16 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
                 // 如果处于全屏状态，检查屏幕方向
                 if (isFullscreen && isMobile) {
                     checkOrientation();
+                    
+                    // 重新应用当前全屏模式
+                    piStreamContainer.classList.remove('fullscreen-mode');
+                    piStreamContainer.classList.remove('fullscreen-fill-mode');
+                    
+                    if (isFullscreenFill) {
+                        piStreamContainer.classList.add('fullscreen-fill-mode');
+                    } else {
+                        piStreamContainer.classList.add('fullscreen-mode');
+                    }
                 }
             }
         });
