@@ -51,6 +51,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         border-radius: 8px;
         overflow: hidden;
         box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        transition: all 0.3s ease;
     }
 
     .video-container img {
@@ -58,6 +59,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         height: auto;
         display: block;
         border-radius: 8px;
+        transition: all 0.3s ease;
     }
 
     .controls-container {
@@ -169,6 +171,172 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         color: #1cb8bd;
     }
 
+    /* 全屏视频相关样式 */
+    .fullscreen-btn {
+        position: absolute;
+        right: 45px;
+        top: 10px;
+        background: rgba(0, 0, 0, 0.5);
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        color: #fff;
+        text-align: center;
+        line-height: 30px;
+        cursor: pointer;
+        font-size: 14px;
+        z-index: 10;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        transition: background 0.3s;
+    }
+    
+    .fullscreen-btn:hover {
+        background: rgba(80, 80, 80, 0.8);
+    }
+    
+    .fullscreen-mode {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: 100vw !important;
+        z-index: 9999;
+        margin: 0;
+        border-radius: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+    }
+    
+    .fullscreen-mode img {
+        max-height: 100vh;
+        max-width: 100vw;
+        width: auto;
+        height: auto;
+        border-radius: 0;
+        object-fit: contain;
+    }
+
+    /* 新增：横屏全屏填充模式 */
+    .fullscreen-fill-mode {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: 100vw !important;
+        z-index: 9999;
+        margin: 0;
+        border-radius: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+    }
+    
+    .fullscreen-fill-mode img {
+        width: 100vw !important;
+        height: 100vh !important;
+        border-radius: 0;
+        object-fit: cover;
+    }
+    
+    /* 横屏提示覆盖层 */
+    .landscape-prompt {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 10001;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        text-align: center;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    
+    .landscape-icon {
+        font-size: 50px;
+        margin-bottom: 20px;
+        animation: rotate 2s infinite;
+    }
+    
+    @keyframes rotate {
+        0% { transform: rotate(0deg); }
+        25% { transform: rotate(90deg); }
+        75% { transform: rotate(90deg); }
+        100% { transform: rotate(0deg); }
+    }
+    
+    .exit-fullscreen-overlay {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px 20px;
+        border-radius: 8px;
+        z-index: 10000;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        display: none;
+    }
+    
+    .fullscreen-controls {
+        position: fixed;
+        bottom: 20px;
+        left: 0;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        z-index: 10000;
+        padding: 0 20px;
+        box-sizing: border-box;
+    }
+    
+    .fullscreen-control-btn {
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: auto;
+        font-size: 14px;
+    }
+    
+    .fullscreen-control-btn:hover {
+        background: rgba(60, 60, 60, 0.8);
+    }
+    
+    .exit-fullscreen-btn {
+        background: #ff3034;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    
+    .exit-fullscreen-btn:hover {
+        background: #d62b2f;
+    }
+    
+    /* 适应横屏的媒体查询 */
+    @media (orientation: landscape) {
+        .fullscreen-fill-mode img {
+            width: 100vw !important;
+            height: 100vh !important;
+        }
+    }
+
     /* 响应式布局 */
     @media (min-width: 768px) {
         .content-container {
@@ -199,6 +367,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         <div class="content-container">
             <div id="pi-stream-container" class="video-container">
                 <div class="close" id="close-pi-stream">×</div>
+                <div class="fullscreen-btn" id="fullscreen-pi-stream">⛶</div>
                 <img id="pi-stream" src="" class="rotate0">
             </div>
             
@@ -284,6 +453,21 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             </div>
         </div>
     </div>
+    
+    <!-- 全屏模式退出按钮覆盖层 -->
+    <div class="exit-fullscreen-overlay" id="exit-fullscreen-overlay">
+        <button class="exit-fullscreen-btn" id="exit-fullscreen-btn">退出全屏模式</button>
+    </div>
+    
+    <!-- 横屏提示覆盖层 -->
+    <div class="landscape-prompt" id="landscape-prompt" style="display: none;">
+        <div class="landscape-icon">📱</div>
+        <h2>请旋转设备到横屏模式</h2>
+        <p>为获得最佳全屏体验，请将手机横过来查看</p>
+        <button class="fullscreen-control-btn" id="dismiss-landscape-prompt">继续浏览</button>
+    </div>
+    
+    <!-- 移除全屏控制按钮，因为阻挡视觉体验 -->
 
     <script>
     document.addEventListener('DOMContentLoaded', function (event) {
@@ -311,7 +495,132 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         connectionStatus.className = 'connection-status';
         connectionStatus.innerHTML = '连接中...';
         document.querySelector('.content-container').insertAdjacentElement('beforebegin', connectionStatus);
-
+        
+        // 全屏状态变量
+        var isFullscreen = false;
+        var isFullscreenFill = true; // 默认使用填充模式
+        var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); // 检测是否是移动设备
+        
+        // 全屏控制相关元素
+        var piStreamContainer = document.getElementById('pi-stream-container');
+        var piStreamImg = document.getElementById('pi-stream');
+        var fullscreenBtn = document.getElementById('fullscreen-pi-stream');
+        var exitFullscreenOverlay = document.getElementById('exit-fullscreen-overlay');
+        var exitFullscreenBtn = document.getElementById('exit-fullscreen-btn');
+        var landscapePrompt = document.getElementById('landscape-prompt');
+        var dismissLandscapePrompt = document.getElementById('dismiss-landscape-prompt');
+        
+        // 检测屏幕方向
+        function checkOrientation() {
+            if (isMobile && isFullscreen) {
+                if (window.orientation === 0 || window.orientation === 180) {
+                    // 竖屏，显示提示
+                    if (landscapePrompt.style.display === 'none') {
+                        landscapePrompt.style.display = 'flex';
+                    }
+                } else {
+                    // 横屏，隐藏提示
+                    landscapePrompt.style.display = 'none';
+                }
+            }
+        }
+        
+        // 全屏显示函数 - 简化版
+        function enterFullscreen() {
+            console.log("进入全屏模式");
+            isFullscreen = true;
+            
+            // 更新全屏按钮外观 - 只改变颜色，不改变图标
+            fullscreenBtn.style.background = "rgba(255, 0, 0, 0.7)"; // 红色背景，颜色更鲜明
+            
+            // 检测设备和方向
+            if (isMobile) {
+                // 移动设备
+                if (window.orientation !== 90 && window.orientation !== -90) {
+                    // 当前不是横屏，显示横屏提示
+                    landscapePrompt.style.display = 'flex';
+                }
+                
+                // 尝试请求原生全屏
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen();
+                } else if (document.documentElement.webkitRequestFullscreen) {
+                    document.documentElement.webkitRequestFullscreen();
+                } else if (document.documentElement.msRequestFullscreen) {
+                    document.documentElement.msRequestFullscreen();
+                }
+            }
+            
+            // 始终使用填充模式
+            piStreamContainer.classList.add('fullscreen-fill-mode');
+            
+            // 隐藏连接状态指示器，避免遮挡视频
+            connectionStatus.style.display = 'none';
+            
+            // 监听键盘事件，支持ESC退出全屏
+            document.addEventListener('keydown', handleKeydown);
+            
+            // 监听屏幕方向变化
+            window.addEventListener('orientationchange', checkOrientation);
+        }
+        
+        // 退出全屏函数 - 简化版
+        function exitFullscreen() {
+            console.log("退出全屏模式");
+            isFullscreen = false;
+            
+            // 恢复全屏按钮外观 - 只改变颜色，不改变图标
+            fullscreenBtn.style.background = "rgba(0, 0, 0, 0.5)"; // 黑色背景
+            
+            // 移除全屏样式
+            piStreamContainer.classList.remove('fullscreen-fill-mode');
+            piStreamContainer.classList.remove('fullscreen-mode');
+            
+            // 隐藏提示
+            landscapePrompt.style.display = 'none';
+            
+            // 恢复连接状态指示器
+            connectionStatus.style.display = 'block';
+            
+            // 移除事件监听
+            document.removeEventListener('keydown', handleKeydown);
+            window.removeEventListener('orientationchange', checkOrientation);
+            
+            // 退出原生全屏
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        }
+        
+        // 键盘事件处理，支持ESC键退出全屏
+        function handleKeydown(e) {
+            if (e.key === 'Escape' && isFullscreen) {
+                exitFullscreen();
+            }
+        }
+        
+        // 全屏按钮点击处理 - 双向切换
+        fullscreenBtn.addEventListener('click', function() {
+            if (piStreamImg.src !== '') {
+                if (isFullscreen) {
+                    // 如果已经是全屏，则退出全屏
+                    exitFullscreen();
+                } else {
+                    // 如果不是全屏，进入全屏
+                    enterFullscreen();
+                }
+            }
+        });
+        
+        // 忽略横屏提示
+        dismissLandscapePrompt.addEventListener('click', function() {
+            landscapePrompt.style.display = 'none';
+        });
+        
         // 检测画面是否冻结的函数
         function checkIfFrozen() {
             if (!piStreamImg.complete || piStreamImg.naturalWidth === 0) return;
@@ -389,7 +698,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             }
             
             // 添加随机参数防止缓存
-            var piStreamImg = document.getElementById('pi-stream');
             piStreamImg.src = piStreamUrl + "?t=" + new Date().getTime();
             document.getElementById('toggle-pi-stream').innerHTML = '停止摄像头';
             piStreamContainer.style.display = 'block';
@@ -436,7 +744,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
         // 尝试重新连接流
         function attemptReconnect() {
-            var piStreamImg = document.getElementById('pi-stream');
             if (reconnectAttempts < maxReconnectAttempts && piStreamImg.src !== '') {
                 reconnectAttempts++;
                 console.log(`尝试重连 (${reconnectAttempts}/${maxReconnectAttempts})...`);
@@ -474,9 +781,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         }
 
         // 树莓派摄像头控制按钮
-        var piStreamImg = document.getElementById('pi-stream');
-        var piStreamContainer = document.getElementById('pi-stream-container');
-        
         document.getElementById('toggle-pi-stream').onclick = function() {
             if(piStreamImg.src === '') {
                 startPiCamStream();
@@ -490,6 +794,13 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
             piStreamImg.src = '';
             document.getElementById('toggle-pi-stream').innerHTML = '启动摄像头';
             updateConnectionStatus("摄像头已停止", "");
+            
+            // 如果在全屏模式下，先退出全屏
+            if (isFullscreen) {
+                // 只恢复全屏按钮的背景色
+                fullscreenBtn.style.background = "rgba(0, 0, 0, 0.5)";
+                exitFullscreen();
+            }
             
             // 清除重连计时器
             if (reconnectTimer) {
@@ -512,12 +823,26 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
         // 关闭按钮事件
         document.getElementById('close-pi-stream').onclick = function() {
+            // 如果在全屏模式下，先退出全屏
+            if (isFullscreen) {
+                // 只恢复全屏按钮的背景色
+                fullscreenBtn.style.background = "rgba(0, 0, 0, 0.5)";
+                exitFullscreen();
+            }
+            
             stopPiCamStream();
         }
         
         // 重启视频流服务按钮
         document.getElementById('reset-camera').onclick = function() {
             if (piStreamImg.src !== '') {
+                // 如果在全屏模式下，先退出全屏
+                if (isFullscreen) {
+                    // 只恢复全屏按钮的背景色
+                    fullscreenBtn.style.background = "rgba(0, 0, 0, 0.5)";
+                    exitFullscreen();
+                }
+                
                 updateConnectionStatus("正在重启视频流服务...", "status-connecting");
                 
                 // 发送请求到树莓派重启视频流服务
@@ -557,6 +882,52 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
                 }
             }
         }, 5000);
+        
+        // 监听窗口大小变化，确保在窗口大小调整时仍能维持全屏状态
+        window.addEventListener('resize', function() {
+            if (isFullscreen) {
+                // 保持填充模式
+                piStreamContainer.classList.remove('fullscreen-fill-mode');
+                void piStreamContainer.offsetWidth; // 强制重排
+                piStreamContainer.classList.add('fullscreen-fill-mode');
+                
+                // 检查是否需要显示横屏提示
+                if (isMobile) {
+                    var isLandscape = window.innerWidth > window.innerHeight;
+                    if (!isLandscape) {
+                        landscapePrompt.style.display = 'flex';
+                    } else {
+                        landscapePrompt.style.display = 'none';
+                    }
+                }
+            }
+        });
+        
+        // 监听页面可见性变化，当页面重新获得焦点时检查视频流状态
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') {
+                if (piStreamImg.src !== '' && !reconnectTimer) {
+                    console.log("页面重新获得焦点，检查视频流状态");
+                    checkIfFrozen();
+                }
+                
+                // 如果处于全屏状态，检查屏幕方向
+                if (isFullscreen && isMobile) {
+                    checkOrientation();
+                }
+            }
+        });
+        
+        // 处理屏幕方向变化
+        window.addEventListener('orientationchange', function() {
+            console.log("屏幕方向变化为: " + (window.orientation === 0 || window.orientation === 180 ? "竖屏" : "横屏"));
+            
+            // 如果在全屏模式且是移动设备，根据方向调整显示
+            if (isFullscreen && isMobile) {
+                // 稍微延迟执行，以确保方向变化完成
+                setTimeout(checkOrientation, 300);
+            }
+        });
     });
     </script>
 </body>
