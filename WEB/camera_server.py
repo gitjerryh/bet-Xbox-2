@@ -107,6 +107,14 @@ night_vision_lock = threading.Lock()  # 夜视模式的锁
 night_vision_strength = 0.8   # 夜视增强强度
 enable_green_tint = True      # 是否启用绿色夜视效果
 
+# 添加运动检测相关的变量
+motion_detected = False       # 是否检测到运动
+motion_detection_threshold = 25  # 运动检测阈值
+last_motion_time = 0          # 上次检测到运动的时间
+reduced_processing_until = 0  # 降低处理复杂度直到此时间
+motion_detection_interval = 0.5  # 运动检测间隔(秒)
+motion_frame_buffer = None    # 用于运动检测的前一帧缓存
+
 # 创建夜视模式查找表
 # 提高暗部和中间亮度区域，使暗处细节更加可见
 # 使用更温和的曲线，避免过度增强导致噪点
@@ -346,6 +354,7 @@ def detect_low_light(frame):
 def apply_night_vision(frame):
     """OV5647专用夜视增强 - 防闪烁优化版本"""
     global night_vision_strength, enable_green_tint, night_vision_buffer, frame_counter
+    global motion_detected, reduced_processing_until
     
     try:
         if frame is None or frame.size == 0:
@@ -382,7 +391,10 @@ def apply_night_vision(frame):
         # 检查当前帧率，根据帧率确定处理级别
         with stats_lock:
             current_fps = fps_stats.get("current", 20)
-            
+        
+        # 检查是否检测到运动或是否处于降级处理阶段
+        use_simple_mode = motion_detected or time.time() < reduced_processing_until
+        
         # 防止处理级别频繁变化
         if not hasattr(apply_night_vision, 'processing_mode'):
             apply_night_vision.processing_mode = 'normal'  # 'simple', 'normal', 'enhanced'
@@ -392,7 +404,7 @@ def apply_night_vision(frame):
         mode_duration = current_time - apply_night_vision.mode_change_time
         
         # 只有当处理模式持续至少2秒后才考虑改变 - 避免频繁切换导致闪烁
-        if mode_duration > 2.0:
+        if mode_duration > 2.0 and not use_simple_mode:
             # 根据帧率选择处理模式
             if current_fps < 10 and apply_night_vision.processing_mode != 'simple':
                 apply_night_vision.processing_mode = 'simple'
@@ -407,22 +419,26 @@ def apply_night_vision(frame):
                 apply_night_vision.mode_change_time = current_time
                 logger.info(f"夜视处理模式切换为增强模式 (当前帧率: {current_fps:.1f})")
         
+        # 如果检测到运动，强制使用简单模式
+        processing_mode = 'simple' if use_simple_mode else apply_night_vision.processing_mode
+        
         # 应用亮度增强 - 对所有模式都执行
         enhanced = cv2.convertScaleAbs(frame, alpha=brightness_factor, beta=brightness_offset)
         
         # 简单模式 - 最基础的处理
-        if apply_night_vision.processing_mode == 'simple':
+        if processing_mode == 'simple':
             # 如果需要绿色夜视，使用极简方法
             if enable_green_tint:
-                # 仅减弱红色通道和增强绿色通道 - 简单固定处理，不使用可变因子
-                enhanced[:,:,2] = (enhanced[:,:,2] * 0.5).astype(np.uint8)  # 红色通道
-                green_boost = np.clip(enhanced[:,:,1] * 1.2, 0, 255).astype(np.uint8)
+                # 增强绿色效果：减弱红蓝通道，增强绿色通道
+                enhanced[:,:,2] = (enhanced[:,:,2] * 0.4).astype(np.uint8)  # 红色通道更弱
+                enhanced[:,:,0] = (enhanced[:,:,0] * 0.4).astype(np.uint8)  # 蓝色通道更弱
+                green_boost = np.clip(enhanced[:,:,1] * 1.5, 0, 255).astype(np.uint8)  # 绿色通道增强更多
                 enhanced[:,:,1] = green_boost
             
             return enhanced
         
         # 标准模式 - 常规处理
-        if apply_night_vision.processing_mode == 'normal':
+        if processing_mode == 'normal':
             # 根据帧计数隔帧应用降噪 - 确保稳定性
             if frame_counter % 2 == 0:  # 每两帧才处理一次
                 enhanced = cv2.GaussianBlur(enhanced, (3, 3), 0)
@@ -434,15 +450,15 @@ def apply_night_vision(frame):
                 if (night_vision_buffer["green_mask"] is None or 
                     night_vision_buffer["last_frame_shape"] != current_shape):
                     night_vision_buffer["green_mask"] = np.zeros_like(enhanced)
-                    night_vision_buffer["green_mask"][:,:,1] = 100  # 固定绿色通道强度
+                    night_vision_buffer["green_mask"][:,:,1] = 160  # 增强绿色通道强度从100提高到160
                     night_vision_buffer["last_frame_shape"] = current_shape
                 
-                # 确保混合因子稳定，减少帧间变化
+                # 增强混合因子，使绿色效果更明显
                 if not hasattr(apply_night_vision, 'blend_factor'):
-                    apply_night_vision.blend_factor = min(night_vision_strength * 0.5, 0.6)
+                    apply_night_vision.blend_factor = min(night_vision_strength * 0.7, 0.8)  # 增加基础系数和上限
                 else:
                     # 平滑过渡混合因子
-                    target_blend = min(night_vision_strength * 0.5, 0.6)
+                    target_blend = min(night_vision_strength * 0.7, 0.8)  # 增加目标混合系数
                     apply_night_vision.blend_factor = apply_night_vision.blend_factor * 0.9 + target_blend * 0.1
                 
                 # 应用绿色效果
@@ -450,10 +466,10 @@ def apply_night_vision(frame):
                                          night_vision_buffer["green_mask"], 
                                          apply_night_vision.blend_factor, 0)
                 
-                # 平滑通道参数过渡，避免突变
+                # 平滑通道参数过渡，避免突变 - 降低红蓝通道强度
                 if not hasattr(apply_night_vision, 'r_factor') or not hasattr(apply_night_vision, 'b_factor'):
-                    apply_night_vision.r_factor = 0.5
-                    apply_night_vision.b_factor = 0.5
+                    apply_night_vision.r_factor = 0.35  # 减弱红色通道从0.5降到0.35
+                    apply_night_vision.b_factor = 0.35  # 减弱蓝色通道从0.5降到0.35
                 
                 enhanced[:,:,0] = (enhanced[:,:,0] * apply_night_vision.b_factor).astype(np.uint8)
                 enhanced[:,:,2] = (enhanced[:,:,2] * apply_night_vision.r_factor).astype(np.uint8)
@@ -461,7 +477,7 @@ def apply_night_vision(frame):
             return enhanced
         
         # 增强模式 - 额外应用对比度增强
-        if apply_night_vision.processing_mode == 'enhanced':
+        if processing_mode == 'enhanced':
             # 应用标准模式的所有处理
             if frame_counter % 2 == 0:
                 enhanced = cv2.GaussianBlur(enhanced, (3, 3), 0)
@@ -471,13 +487,13 @@ def apply_night_vision(frame):
                 if (night_vision_buffer["green_mask"] is None or 
                     night_vision_buffer["last_frame_shape"] != enhanced.shape):
                     night_vision_buffer["green_mask"] = np.zeros_like(enhanced)
-                    night_vision_buffer["green_mask"][:,:,1] = 100
+                    night_vision_buffer["green_mask"][:,:,1] = 180  # 在增强模式下使用更强的绿色强度
                     night_vision_buffer["last_frame_shape"] = enhanced.shape
                 
                 if not hasattr(apply_night_vision, 'blend_factor'):
-                    apply_night_vision.blend_factor = min(night_vision_strength * 0.5, 0.6)
+                    apply_night_vision.blend_factor = min(night_vision_strength * 0.7, 0.8)  # 增强混合因子
                 else:
-                    target_blend = min(night_vision_strength * 0.5, 0.6)
+                    target_blend = min(night_vision_strength * 0.7, 0.8)
                     apply_night_vision.blend_factor = apply_night_vision.blend_factor * 0.9 + target_blend * 0.1
                 
                 enhanced = cv2.addWeighted(enhanced, 1.0, 
@@ -485,11 +501,15 @@ def apply_night_vision(frame):
                                          apply_night_vision.blend_factor, 0)
                 
                 if not hasattr(apply_night_vision, 'r_factor') or not hasattr(apply_night_vision, 'b_factor'):
-                    apply_night_vision.r_factor = 0.5
-                    apply_night_vision.b_factor = 0.5
+                    apply_night_vision.r_factor = 0.3  # 进一步减弱红色
+                    apply_night_vision.b_factor = 0.3  # 进一步减弱蓝色
                 
                 enhanced[:,:,0] = (enhanced[:,:,0] * apply_night_vision.b_factor).astype(np.uint8)
                 enhanced[:,:,2] = (enhanced[:,:,2] * apply_night_vision.r_factor).astype(np.uint8)
+                
+                # 增强模式下额外增强绿色通道
+                green_boost = np.clip(enhanced[:,:,1] * 1.2, 0, 255).astype(np.uint8)
+                enhanced[:,:,1] = green_boost
             
             # 每3帧应用一次高级增强，减轻计算负担
             if frame_counter % 3 == 0:
@@ -582,9 +602,66 @@ def check_and_update_night_vision(frame):
         logger.error(f"检查夜视状态出错: {e}")
         return night_vision_active  # 保持当前状态
 
+def detect_motion(frame):
+    """检测帧中的运动，简化版本仅用于夜视模式调整处理级别"""
+    global motion_detected, motion_frame_buffer, last_motion_time, reduced_processing_until
+    
+    try:
+        # 简单的运动检测实现
+        current_time = time.time()
+        
+        # 检查运动检测间隔以减少处理负担
+        if current_time - last_motion_time < motion_detection_interval:
+            return False
+            
+        # 初始化运动检测缓冲区
+        if motion_frame_buffer is None or motion_frame_buffer.shape != frame.shape:
+            # 首次运行或帧大小变化，初始化缓冲区
+            motion_frame_buffer = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            motion_detected = False
+            return False
+        
+        # 将当前帧转换为灰度
+        current_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # 对比当前帧与缓冲帧
+        frame_diff = cv2.absdiff(current_gray, motion_frame_buffer)
+        
+        # 应用阈值
+        _, thresholded = cv2.threshold(frame_diff, motion_detection_threshold, 255, cv2.THRESH_BINARY)
+        
+        # 减少噪点影响
+        thresholded = cv2.erode(thresholded, None, iterations=2)
+        thresholded = cv2.dilate(thresholded, None, iterations=4)
+        
+        # 计算非零像素的百分比（移动区域）
+        motion_ratio = cv2.countNonZero(thresholded) / (frame.shape[0] * frame.shape[1])
+        
+        # 更新缓冲帧 (使用当前帧的70%和缓冲帧的30%进行混合，减少噪点影响)
+        motion_frame_buffer = cv2.addWeighted(current_gray, 0.7, motion_frame_buffer, 0.3, 0)
+        
+        # 更新运动状态
+        old_motion_state = motion_detected
+        motion_detected = motion_ratio > 0.01  # 如果超过1%的像素有变化，认为有运动
+        
+        # 如果检测到运动，临时降低处理复杂度以提高响应性
+        if motion_detected:
+            last_motion_time = current_time
+            reduced_processing_until = current_time + 1.0  # 降级处理1秒
+            
+            # 记录运动检测状态变化
+            if not old_motion_state and motion_detected:
+                logger.debug(f"检测到运动，移动比例: {motion_ratio*100:.2f}%")
+        
+        return motion_detected
+        
+    except Exception as e:
+        logger.error(f"运动检测出错: {e}")
+        return False
+
 def enhance_frame(frame):
     """优化的帧增强函数，使用简单可靠的处理流程"""
-    global previous_frame, night_vision_active, frame_counter
+    global previous_frame, night_vision_active, frame_counter, motion_detected, reduced_processing_until
     
     if frame is None or frame.size == 0:
         return None
@@ -598,6 +675,11 @@ def enhance_frame(frame):
         
         # 根据夜视模式选择处理流程
         if night_mode_enabled:
+            # 如果检测到运动或者正在降低处理级别，使用简单处理
+            if motion_detected or time.time() < reduced_processing_until:
+                # 使用简单模式的夜视增强
+                logger.debug("使用简单夜视模式 - 已检测到运动")
+            
             # 应用夜视模式增强
             return apply_night_vision(frame)
         else:
@@ -634,7 +716,7 @@ def update_fps_stats(frame_time):
 
 def process_frame(frame):
     """处理捕获的帧 - 优化版本，增加运动检测和动态处理"""
-    global frame_counter, night_vision_active, reduced_processing_until
+    global frame_counter, night_vision_active, reduced_processing_until, motion_detected, motion_frame_buffer, last_motion_time
     
     if frame is None:
         return None
@@ -645,7 +727,10 @@ def process_frame(frame):
         
         # 检测是否有运动（仅在夜视模式下）
         if night_vision_active and frame_counter % 5 == 0:  # 每5帧检查一次运动
-            detect_motion(frame)
+            try:
+                detect_motion(frame)
+            except Exception as e:
+                logger.error(f"运动检测错误: {e}")
         
         # 夜视模式检查
         is_night_vision = check_and_update_night_vision(frame)
@@ -1316,6 +1401,13 @@ if __name__ == '__main__':
     
     try:
         logger.info(f"摄像头服务器开始启动，IP: {ip_address}")
+        
+        # 确保全局变量已正确初始化
+        # 使用全局变量时不需要再次使用global声明，因为这些变量已经在文件顶部定义为全局变量
+        motion_detected = False
+        motion_frame_buffer = None
+        last_motion_time = time.time()
+        reduced_processing_until = 0
         
         # 初始化摄像头
         if not init_camera():
